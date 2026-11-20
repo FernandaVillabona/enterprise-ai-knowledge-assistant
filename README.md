@@ -43,7 +43,7 @@ flowchart LR
 ## Hoja de ruta
 
 - [x] **Fase 0 – Fundamentos**: estructura del repo, Docker Compose, PostgreSQL + pgvector, FastAPI con `/api/health`.
-- [ ] **Fase 1 – Autenticación**: modelos de usuario, Alembic, registro/login con JWT, hash de contraseñas.
+- [x] **Fase 1 – Autenticación**: modelo de usuario, Alembic, registro/login con JWT, hash bcrypt, rol admin/user, tests.
 - [ ] **Fase 2 – Ingesta de documentos**: subida (admin), extracción PDF/DOCX/TXT por página, chunking, embeddings.
 - [ ] **Fase 3 – Búsqueda semántica**: consulta vectorial con pgvector (índice HNSW), endpoint de búsqueda.
 - [ ] **Fase 4 – Chat RAG**: conversaciones con historial, prompt con contexto, respuestas con citas.
@@ -80,9 +80,38 @@ docker compose up -d db
 cd backend
 python -m venv .venv
 .venv\Scripts\activate          # Windows  (Linux/Mac: source .venv/bin/activate)
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
+alembic upgrade head            # crea las tablas
 uvicorn app.main:app --reload
 ```
+
+### Crear un administrador
+
+El registro público (`POST /api/auth/register`) siempre crea usuarios con rol `user`. Los administradores se crean por consola:
+
+```bash
+python -m app.scripts.create_admin --email admin@empresa.com --name "Admin"
+# o con Docker:
+docker compose exec backend python -m app.scripts.create_admin --email admin@empresa.com --name "Admin"
+```
+
+### Tests
+
+```bash
+cd backend
+pytest -q
+```
+
+## API (hasta ahora)
+
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
+| GET | `/api/health` | – | Estado de la API, la BD y pgvector |
+| POST | `/api/auth/register` | – | Registro (rol `user`) |
+| POST | `/api/auth/login` | – | Login (form `username`=email, `password`) → JWT |
+| GET | `/api/auth/me` | Bearer | Usuario autenticado |
+
+En Swagger (`/docs`) usa el botón **Authorize** para hacer login y probar las rutas protegidas.
 
 ## Estructura
 
@@ -90,10 +119,15 @@ uvicorn app.main:app --reload
 .
 ├── backend/
 │   ├── app/
-│   │   ├── api/          # Routers de FastAPI
-│   │   ├── core/         # Configuración, seguridad
-│   │   ├── db/           # Conexión y modelos
+│   │   ├── api/          # Routers de FastAPI y dependencias (auth, roles)
+│   │   ├── core/         # Configuración, seguridad (bcrypt, JWT)
+│   │   ├── db/           # Conexión a la BD
+│   │   ├── models/       # Modelos ORM (SQLAlchemy)
+│   │   ├── schemas/      # Esquemas Pydantic (entrada/salida de la API)
+│   │   ├── scripts/      # Utilidades de consola (create_admin)
 │   │   └── main.py
+│   ├── migrations/       # Migraciones Alembic
+│   ├── tests/
 │   ├── Dockerfile
 │   └── requirements.txt
 ├── db/init/              # SQL de inicialización (activa pgvector)
