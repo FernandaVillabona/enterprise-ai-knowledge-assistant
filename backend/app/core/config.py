@@ -31,6 +31,13 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:4200"
 
+    # --- Ingesta de documentos ---
+    storage_dir: Path = ROOT_DIR / "backend" / "storage" / "documents"
+    max_upload_mb: int = 20
+    chunk_size_tokens: int = 500
+    chunk_overlap_tokens: int = 80
+    embedding_batch_size: int = 100
+
     @property
     def database_url(self) -> str:
         return (

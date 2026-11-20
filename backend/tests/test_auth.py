@@ -78,7 +78,7 @@ def test_require_admin(client, admin_user):
     try:
         register(client)
         user_token = login(client).json()["access_token"]
-        admin_token = login(client, "admin@empresa.com", "admin-pass-123").json()["access_token"]
+        admin_token = login(client, "admin@empresa.com", "password-123").json()["access_token"]
 
         r_user = client.get("/api/_admin-only", headers={"Authorization": f"Bearer {user_token}"})
         r_admin = client.get("/api/_admin-only", headers={"Authorization": f"Bearer {admin_token}"})

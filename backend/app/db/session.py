@@ -14,6 +14,12 @@ class Base(DeclarativeBase):
     """Clase base de todos los modelos ORM (se usará desde la fase 1)."""
 
 
+def get_session_factory() -> sessionmaker:
+    """Dependencia para tareas en segundo plano, que necesitan abrir su propia sesión
+    (la de la petición ya se ha cerrado cuando se ejecutan). Los tests la sustituyen."""
+    return SessionLocal
+
+
 def get_db() -> Generator[Session, None, None]:
     """Dependencia de FastAPI: abre una sesión por petición y la cierra al final."""
     db = SessionLocal()

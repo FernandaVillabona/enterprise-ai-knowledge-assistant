@@ -44,7 +44,7 @@ flowchart LR
 
 - [x] **Fase 0 – Fundamentos**: estructura del repo, Docker Compose, PostgreSQL + pgvector, FastAPI con `/api/health`.
 - [x] **Fase 1 – Autenticación**: modelo de usuario, Alembic, registro/login con JWT, hash bcrypt, rol admin/user, tests.
-- [ ] **Fase 2 – Ingesta de documentos**: subida (admin), extracción PDF/DOCX/TXT por página, chunking, embeddings.
+- [x] **Fase 2 – Ingesta de documentos**: subida (admin), extracción PDF/DOCX/TXT por página, chunking por tokens con solapamiento, embeddings en lote, procesamiento en segundo plano.
 - [ ] **Fase 3 – Búsqueda semántica**: consulta vectorial con pgvector (índice HNSW), endpoint de búsqueda.
 - [ ] **Fase 4 – Chat RAG**: conversaciones con historial, prompt con contexto, respuestas con citas.
 - [ ] **Fase 5 – Roles y permisos**: roles/departamentos, filtrado de documentos por permiso en la recuperación.
@@ -110,6 +110,32 @@ pytest -q
 | POST | `/api/auth/register` | – | Registro (rol `user`) |
 | POST | `/api/auth/login` | – | Login (form `username`=email, `password`) → JWT |
 | GET | `/api/auth/me` | Bearer | Usuario autenticado |
+| POST | `/api/documents` | Admin | Subir PDF/DOCX/TXT (multipart `file`, `title` opcional) → 202 |
+| GET | `/api/documents` | Admin | Listar documentos y su estado |
+| GET | `/api/documents/{id}` | Admin | Estado: `pending` → `processing` → `ready` / `failed` |
+| GET | `/api/documents/{id}/chunks` | Admin | Ver cómo se ha troceado el documento |
+| POST | `/api/documents/{id}/reprocess` | Admin | Volver a procesar |
+| DELETE | `/api/documents/{id}` | Admin | Borrar documento, chunks y archivo |
+
+## Cómo funciona la ingesta
+
+```mermaid
+flowchart LR
+    A[Subida] -->|valida extensión,<br/>firma y tamaño| B[(Disco)]
+    B --> C[Extraer texto<br/>por página]
+    C --> D[Chunks de ~500 tokens<br/>solape 80, sin cruzar páginas]
+    D --> E[Embeddings en lotes<br/>título + chunk]
+    E --> F[(chunks + vector 1536)]
+```
+
+Decisiones de diseño:
+
+- **Por página**: cada chunk guarda su `page_number`; es lo que permite citar «documento, pág. N».
+- **Tokens, no caracteres**: el tamaño se mide con `tiktoken` (`cl100k_base`), el tokenizador de los modelos de embeddings de OpenAI.
+- **Fronteras naturales**: se corta por párrafo → frase → tokens, con solapamiento para no perder ideas que caen en el corte.
+- **Título en el embedding**: se embebe `título + chunk`, para que un fragmento que no menciona el tema (p. ej. «son 23 días hábiles») siga siendo recuperable.
+- **Seguridad en la subida**: se comprueba la firma del archivo (magic bytes), no solo la extensión; el nombre en disco es un UUID; hay límite de tamaño.
+- **Segundo plano**: la subida responde 202 al instante y el procesamiento corre en `BackgroundTasks`. En producción usaría una cola (Celery/RQ) con reintentos.
 
 En Swagger (`/docs`) usa el botón **Authorize** para hacer login y probar las rutas protegidas.
 
@@ -125,6 +151,7 @@ En Swagger (`/docs`) usa el botón **Authorize** para hacer login y probar las r
 │   │   ├── models/       # Modelos ORM (SQLAlchemy)
 │   │   ├── schemas/      # Esquemas Pydantic (entrada/salida de la API)
 │   │   ├── scripts/      # Utilidades de consola (create_admin)
+│   │   ├── services/     # Lógica: extracción, chunking, embeddings, ingesta
 │   │   └── main.py
 │   ├── migrations/       # Migraciones Alembic
 │   ├── tests/
