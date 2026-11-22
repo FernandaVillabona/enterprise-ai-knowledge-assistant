@@ -13,7 +13,9 @@ ROOT_DIR = Path(__file__).resolve().parents[3]
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=ROOT_DIR / ".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=ROOT_DIR / ".env", extra="ignore", env_parse_none_str="none"
+    )
 
     postgres_user: str = "kb_user"
     postgres_password: str = "kb_password"
@@ -37,6 +39,14 @@ class Settings(BaseSettings):
     chunk_size_tokens: int = 500
     chunk_overlap_tokens: int = 80
     embedding_batch_size: int = 100
+
+    # --- Chat RAG ---
+    # OPENAI_TEMPERATURE=none en el .env = no enviarla (los modelos de razonamiento no la aceptan)
+    openai_temperature: float | None = 0.0
+    rag_top_k: int = 6  # fragmentos que se envían al modelo como contexto
+    rag_min_similarity: float = 0.2  # por debajo, un resultado semántico se considera irrelevante
+    rag_history_messages: int = 6  # mensajes previos que se incluyen para dar contexto
+    rag_max_answer_tokens: int = 800
 
     @property
     def database_url(self) -> str:

@@ -20,27 +20,17 @@ from fastapi import (
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from app.api.deps import AdminUser, DbSession
+from app.api.deps import AdminUser, DbSession, EmbedderDep
 from app.core.config import get_settings
 from app.db.session import get_session_factory
 from app.models.document import Chunk, Document, DocumentStatus, FileType
 from app.schemas.documents import ChunkRead, DocumentRead
-from app.services.embeddings import Embedder, get_embedder
 from app.services.ingestion import run_ingestion_job
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 EXTENSIONS = {".pdf": FileType.PDF, ".docx": FileType.DOCX, ".txt": FileType.TXT}
 
-
-def embedder_dependency() -> Embedder:
-    try:
-        return get_embedder()
-    except RuntimeError as exc:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc))
-
-
-EmbedderDep = Annotated[Embedder, Depends(embedder_dependency)]
 SessionFactory = Annotated[sessionmaker, Depends(get_session_factory)]
 
 

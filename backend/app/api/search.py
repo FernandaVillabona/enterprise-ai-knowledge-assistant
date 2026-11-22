@@ -1,7 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.deps import CurrentUser, DbSession
-from app.api.documents import EmbedderDep
+from app.api.deps import CurrentUser, DbSession, EmbedderDep
 from app.schemas.search import SearchHitRead, SearchRequest, SearchResponse
 from app.services import search as search_service
 

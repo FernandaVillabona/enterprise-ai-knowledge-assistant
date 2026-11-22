@@ -12,7 +12,7 @@ import math
 import pytest
 from sqlalchemy import text
 
-from app.api.documents import embedder_dependency
+from app.api.deps import embedder_dependency
 from app.main import app
 from app.services.search import SearchHit, SearchMode, reciprocal_rank_fusion, search
 
