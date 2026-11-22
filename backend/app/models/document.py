@@ -31,6 +31,13 @@ class FileType(str, enum.Enum):
     TXT = "txt"
 
 
+class Visibility(str, enum.Enum):
+    """`public`: cualquier usuario autenticado. `restricted`: solo miembros de sus grupos."""
+
+    PUBLIC = "public"
+    RESTRICTED = "restricted"
+
+
 def _values(e: type[enum.Enum]) -> list[str]:
     return [m.value for m in e]
 
@@ -60,7 +67,16 @@ class Document(Base):
         DateTime(timezone=True), server_default=func.now()
     )
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Denegar por defecto: un documento nuevo solo lo ven los admins hasta que se le
+    # asignen grupos o se haga público.
+    visibility: Mapped[Visibility] = mapped_column(
+        Enum(Visibility, name="document_visibility", values_callable=_values),
+        default=Visibility.RESTRICTED,
+    )
 
+    groups: Mapped[list["Group"]] = relationship(  # noqa: F821
+        secondary="document_groups", back_populates="documents", order_by="Group.name"
+    )
     chunks: Mapped[list["Chunk"]] = relationship(
         back_populates="document",
         cascade="all, delete-orphan",

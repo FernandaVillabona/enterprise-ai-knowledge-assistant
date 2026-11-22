@@ -47,7 +47,7 @@ flowchart LR
 - [x] **Fase 2 – Ingesta de documentos**: subida (admin), extracción PDF/DOCX/TXT por página, chunking por tokens con solapamiento, embeddings en lote, procesamiento en segundo plano.
 - [x] **Fase 3 – Búsqueda semántica**: índice HNSW (coseno), full-text en español (GIN), búsqueda híbrida con RRF, tests contra PostgreSQL real en CI.
 - [x] **Fase 4 – Chat RAG**: conversaciones con historial, reescritura de preguntas de seguimiento, prompt con fuentes delimitadas, citas validadas.
-- [ ] **Fase 5 – Roles y permisos**: roles/departamentos, filtrado de documentos por permiso en la recuperación.
+- [x] **Fase 5 – Roles y permisos**: grupos, documentos públicos/restringidos (denegar por defecto), filtro de permisos dentro de la consulta de recuperación, historial que respeta accesos revocados.
 - [ ] **Fase 6 – Evaluación**: verificación de fidelidad (LLM-as-judge), dataset de evaluación, métricas.
 - [ ] **Fase 7 – Frontend Angular**: login, chat, panel de administración.
 - [ ] **Fase 8 – Calidad**: tests, CI con GitHub Actions, despliegue.
@@ -110,8 +110,10 @@ pytest -q
 | POST | `/api/auth/register` | – | Registro (rol `user`) |
 | POST | `/api/auth/login` | – | Login (form `username`=email, `password`) → JWT |
 | GET | `/api/auth/me` | Bearer | Usuario autenticado |
-| POST | `/api/documents` | Admin | Subir PDF/DOCX/TXT (multipart `file`, `title` opcional) → 202 |
+| POST | `/api/documents` | Admin | Subir PDF/DOCX/TXT (multipart `file`, `title`, `visibility`, `group_ids`) → 202 |
 | GET | `/api/documents` | Admin | Listar documentos y su estado |
+| GET | `/api/documents/accessible` | Bearer | Documentos que puedo consultar |
+| PUT | `/api/documents/{id}/access` | Admin | Cambiar `visibility` y `group_ids` |
 | GET | `/api/documents/{id}` | Admin | Estado: `pending` → `processing` → `ready` / `failed` |
 | GET | `/api/documents/{id}/chunks` | Admin | Ver cómo se ha troceado el documento |
 | POST | `/api/documents/{id}/reprocess` | Admin | Volver a procesar |
@@ -122,6 +124,25 @@ pytest -q
 | GET | `/api/conversations/{id}` | Bearer | Conversación con mensajes y fuentes |
 | DELETE | `/api/conversations/{id}` | Bearer | Borrar conversación |
 | POST | `/api/conversations/{id}/messages` | Bearer | Preguntar → respuesta con citas y fuentes |
+| POST/GET | `/api/groups` | Admin | Crear / listar grupos (con miembros) |
+| PATCH/DELETE | `/api/groups/{id}` | Admin | Renombrar / borrar grupo |
+| PUT | `/api/groups/{id}/members` | Admin | Reemplazar miembros `{user_ids}` |
+| GET | `/api/users` | Admin | Usuarios con sus grupos |
+| PATCH | `/api/users/{id}` | Admin | Cambiar `role`, `is_active`, `group_ids` |
+
+## Control de acceso
+
+| | Documento `public` | `restricted` con grupos | `restricted` sin grupos |
+|---|---|---|---|
+| Admin | ✅ | ✅ | ✅ |
+| Usuario miembro de alguno de sus grupos | ✅ | ✅ | ❌ |
+| Resto de usuarios | ✅ | ❌ | ❌ |
+
+- **El filtro va en la consulta SQL de recuperación** (`services/permissions.py`), como un `EXISTS` sobre las tablas de grupos. Un fragmento no autorizado nunca sale de la base de datos y, por tanto, nunca llega al prompt. Filtrar después, o pedirle al LLM que «no use» ciertos documentos, no es seguro.
+- **El parámetro `access` de la búsqueda es obligatorio**: olvidarlo es un error de programación, no una fuga silenciosa.
+- **Denegar por defecto**: los documentos nuevos (y los existentes al migrar) son `restricted` sin grupos, visibles solo para admins.
+- **Permisos evaluados al leer**: si un usuario pierde acceso a un documento, las fuentes guardadas en su historial se ocultan y las respuestas basadas en él no se reenvían al modelo como contexto.
+- **HNSW + filtros**: `hnsw.iterative_scan` evita que el filtro de permisos deje la búsqueda vectorial con menos resultados de los pedidos.
 
 ## Cómo funciona la ingesta
 

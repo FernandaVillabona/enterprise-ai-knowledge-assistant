@@ -12,7 +12,7 @@
 import enum
 from dataclasses import dataclass
 
-from sqlalchemy import func, select, text
+from sqlalchemy import ColumnElement, func, select, text
 from sqlalchemy.orm import Session
 
 from app.models.document import FTS_CONFIG, Chunk, Document, DocumentStatus, chunk_tsvector
@@ -39,8 +39,12 @@ class SearchHit:
     keyword_rank: float | None = None  # ts_rank_cd (si hubo coincidencia por palabras)
 
 
-def _base_query(document_ids: list[int] | None):
-    """Columnas comunes y filtros: solo documentos procesados (y, en la fase 5, autorizados)."""
+def _base_query(access: ColumnElement[bool], document_ids: list[int] | None):
+    """Columnas comunes y filtros: solo documentos procesados Y autorizados.
+
+    `access` es la condición de permisos (services/permissions.py). Es obligatoria a
+    propósito: olvidarla debe ser un error, no una fuga de datos.
+    """
     q = (
         select(
             Chunk.id,
@@ -50,7 +54,7 @@ def _base_query(document_ids: list[int] | None):
             Chunk.content,
         )
         .join(Document, Document.id == Chunk.document_id)
-        .where(Document.status == DocumentStatus.READY)
+        .where(Document.status == DocumentStatus.READY, access)
     )
     if document_ids is not None:
         q = q.where(Chunk.document_id.in_(document_ids))
@@ -74,13 +78,14 @@ def semantic_search(
     db: Session,
     query_vector: list[float],
     top_k: int,
+    access: ColumnElement[bool],
     document_ids: list[int] | None = None,
     min_similarity: float = 0.0,
 ) -> list[SearchHit]:
     _configure_hnsw(db)
     distance = Chunk.embedding.cosine_distance(query_vector)
     rows = db.execute(
-        _base_query(document_ids).add_columns(distance.label("distance")).order_by(distance).limit(top_k)
+        _base_query(access, document_ids).add_columns(distance.label("distance")).order_by(distance).limit(top_k)
     ).all()
     hits = []
     for r in rows:
@@ -94,14 +99,18 @@ def semantic_search(
 
 
 def keyword_search(
-    db: Session, query: str, top_k: int, document_ids: list[int] | None = None
+    db: Session,
+    query: str,
+    top_k: int,
+    access: ColumnElement[bool],
+    document_ids: list[int] | None = None
 ) -> list[SearchHit]:
     # websearch_to_tsquery acepta sintaxis tipo Google: "frase exacta", -excluir, OR
     tsquery = func.websearch_to_tsquery(FTS_CONFIG, query)
     tsvector = chunk_tsvector()  # misma expresión que el índice GIN
     rank = func.ts_rank_cd(tsvector, tsquery)
     rows = db.execute(
-        _base_query(document_ids)
+        _base_query(access, document_ids)
         .add_columns(rank.label("rank"))
         .where(tsvector.op("@@")(tsquery))
         .order_by(rank.desc())
@@ -140,20 +149,22 @@ def search(
     db: Session,
     embedder: Embedder,
     query: str,
+    *,
+    access: ColumnElement[bool],
     top_k: int = 5,
     mode: SearchMode = SearchMode.HYBRID,
     document_ids: list[int] | None = None,
     min_similarity: float = 0.0,
 ) -> list[SearchHit]:
     if mode is SearchMode.KEYWORD:
-        return keyword_search(db, query, top_k, document_ids)
+        return keyword_search(db, query, top_k, access, document_ids)
 
     query_vector = embedder.embed([query])[0]
     if mode is SearchMode.SEMANTIC:
-        return semantic_search(db, query_vector, top_k, document_ids, min_similarity)
+        return semantic_search(db, query_vector, top_k, access, document_ids, min_similarity)
 
     # Híbrida: pedimos más candidatos de cada lado para que la fusión tenga material
     candidates = top_k * 4
-    semantic = semantic_search(db, query_vector, candidates, document_ids, min_similarity)
-    keyword = keyword_search(db, query, candidates, document_ids)
+    semantic = semantic_search(db, query_vector, candidates, access, document_ids, min_similarity)
+    keyword = keyword_search(db, query, candidates, access, document_ids)
     return reciprocal_rank_fusion(semantic, keyword)[:top_k]

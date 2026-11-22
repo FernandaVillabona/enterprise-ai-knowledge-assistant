@@ -16,12 +16,33 @@ from app.schemas.chat import (
     MessageCreate,
 )
 from app.services.llm import ChatMessage
+from app.services.permissions import accessible_document_ids
 from app.services.rag import answer_question
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/conversations", tags=["chat"])
 
 DEFAULT_TITLE = "Nueva conversación"
+
+
+def _source_document_ids(messages: list[Message]) -> set[int]:
+    return {s["document_id"] for m in messages for s in (m.sources or [])}
+
+
+def _history_for_llm(db: DbSession, user: User, messages: list[Message]) -> list[ChatMessage]:
+    """Historial que se envía al modelo.
+
+    Si el usuario ha perdido acceso a un documento, las respuestas anteriores que lo
+    citaban contienen información que ya no debe ver: no se reenvían al modelo.
+    """
+    allowed = accessible_document_ids(db, user, _source_document_ids(messages))
+    history = []
+    for m in messages:
+        cited_docs = {s["document_id"] for s in (m.sources or []) if s.get("cited")}
+        if m.role == MessageRole.ASSISTANT and not cited_docs <= allowed:
+            continue
+        history.append(ChatMessage(m.role.value, m.content))
+    return history
 
 
 def _get_own_conversation(db: DbSession, user: User, conversation_id: int) -> Conversation:
@@ -53,8 +74,20 @@ def list_conversations(user: CurrentUser, db: DbSession) -> list[Conversation]:
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetail)
-def get_conversation(conversation_id: int, user: CurrentUser, db: DbSession) -> Conversation:
-    return _get_own_conversation(db, user, conversation_id)
+def get_conversation(conversation_id: int, user: CurrentUser, db: DbSession) -> ConversationDetail:
+    """Conversación con sus mensajes.
+
+    Las fuentes guardadas incluyen el texto de los fragmentos. Si desde entonces el
+    usuario perdió acceso a un documento (o se borró), esas fuentes se omiten: los
+    permisos se evalúan al leer, no solo al preguntar.
+    """
+    conversation = _get_own_conversation(db, user, conversation_id)
+    detail = ConversationDetail.model_validate(conversation)
+    allowed = accessible_document_ids(db, user, _source_document_ids(conversation.messages))
+    for message in detail.messages:
+        if message.sources is not None:
+            message.sources = [s for s in message.sources if s.document_id in allowed]
+    return detail
 
 
 @router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -77,7 +110,7 @@ def send_message(
     En `sources`, `cited=true` marca las fuentes que el modelo citó realmente.
     """
     conversation = _get_own_conversation(db, user, conversation_id)
-    history = [ChatMessage(m.role.value, m.content) for m in conversation.messages]
+    history = _history_for_llm(db, user, conversation.messages)
 
     try:
         result = answer_question(llm, retrieve, data.content, history)

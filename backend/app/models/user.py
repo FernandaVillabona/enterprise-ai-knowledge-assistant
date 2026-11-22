@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 
 from sqlalchemy import DateTime, Enum, String, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
 
@@ -10,9 +10,8 @@ from app.db.session import Base
 class UserRole(str, enum.Enum):
     """Rol global del usuario.
 
-    - admin: gestiona documentos y usuarios.
-    - user: consulta los documentos que tiene autorizados.
-    En la fase 5 añadiremos permisos más finos (grupos/departamentos por documento).
+    - admin: gestiona documentos, grupos y usuarios; ve todos los documentos.
+    - user: consulta los documentos públicos y los de sus grupos (ver models/group.py).
     """
 
     ADMIN = "admin"
@@ -33,4 +32,8 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+    groups: Mapped[list["Group"]] = relationship(  # noqa: F821
+        secondary="user_groups", back_populates="users", order_by="Group.name"
     )

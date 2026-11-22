@@ -3,7 +3,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, chat, documents, health, search
+from app.api import auth, chat, documents, groups, health, search
 from app.core.config import get_settings
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s [%(name)s] %(message)s")
@@ -29,3 +29,5 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")
 app.include_router(search.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
+app.include_router(groups.groups_router, prefix="/api")
+app.include_router(groups.users_router, prefix="/api")
