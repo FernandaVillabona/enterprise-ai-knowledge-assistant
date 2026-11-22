@@ -25,3 +25,6 @@ backend/storage/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Reportes generados por app.scripts.run_eval
+eval/reports/

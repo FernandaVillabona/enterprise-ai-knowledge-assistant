@@ -22,13 +22,14 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401
-from app.api.deps import embedder_dependency
+from app.api.deps import embedder_dependency, judge_llm_dependency
 from app.core.config import get_settings
 from app.core.security import create_access_token, hash_password
 from app.db.session import Base, get_db, get_session_factory
 from app.main import app
 from app.models.user import User, UserRole
 from app.services.embeddings import FakeEmbedder
+from app.services.llm import FakeLLM
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 USING_POSTGRES = bool(TEST_DATABASE_URL)
@@ -96,6 +97,10 @@ def client(db: Session) -> Iterator[TestClient]:
     app.dependency_overrides[get_db] = _get_db
     app.dependency_overrides[get_session_factory] = lambda: TestingSession
     app.dependency_overrides[embedder_dependency] = lambda: FakeEmbedder()
+    # Juez por defecto: todo respaldado. Los tests de evaluación lo sustituyen.
+    app.dependency_overrides[judge_llm_dependency] = lambda: FakeLLM(
+        lambda m: '{"claims": [{"claim": "dato", "supported": true, "sources": [1]}]}'
+    )
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()

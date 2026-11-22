@@ -1,0 +1,18 @@
+Procedimiento de gastos de viaje
+Nimbus Tech S.L. (empresa ficticia)
+
+1. Aprobación
+
+Todo viaje de trabajo debe aprobarlo previamente el responsable directo en el portal Gastos.
+
+2. Importes máximos
+
+- Dieta diaria en viajes nacionales: 55 euros.
+- Dieta diaria en viajes internacionales: 90 euros.
+- Alojamiento: máximo 120 euros por noche en España y 180 euros por noche en el extranjero.
+- Desplazamientos: se usará el tren cuando el trayecto dure menos de 4 horas; en otro caso, avión en clase turista.
+3. Reembolso
+
+Los gastos se reembolsan presentando la factura original en el portal Gastos en un plazo máximo de 30 días desde la fecha del gasto. El importe se abona en la nómina del mes siguiente.
+
+Los tickets sin factura solo se aceptan para taxis y transporte público, con un máximo de 20 euros por ticket.

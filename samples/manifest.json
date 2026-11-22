@@ -1,0 +1,20 @@
+{
+  "_comment": "Corpus de demostración de una empresa ficticia. Lo carga: python -m app.scripts.seed_demo",
+  "groups": [
+    {"name": "Recursos Humanos", "description": "Equipo de personas y nóminas"},
+    {"name": "IT", "description": "Sistemas y seguridad"}
+  ],
+  "users": [
+    {"email": "admin@nimbus.example", "full_name": "Admin Demo", "role": "admin", "groups": []},
+    {"email": "ana@nimbus.example", "full_name": "Ana (RR. HH.)", "role": "user", "groups": ["Recursos Humanos"]},
+    {"email": "ivan@nimbus.example", "full_name": "Iván (IT)", "role": "user", "groups": ["IT"]},
+    {"email": "eva@nimbus.example", "full_name": "Eva (sin grupo)", "role": "user", "groups": []}
+  ],
+  "documents": [
+    {"file": "politica_vacaciones.txt", "title": "Política de vacaciones y permisos", "visibility": "public", "groups": []},
+    {"file": "teletrabajo.txt", "title": "Política de teletrabajo", "visibility": "public", "groups": []},
+    {"file": "gastos_viaje.txt", "title": "Procedimiento de gastos de viaje", "visibility": "public", "groups": []},
+    {"file": "seguridad_informacion.txt", "title": "Normativa de seguridad de la información", "visibility": "restricted", "groups": ["IT"]},
+    {"file": "bandas_salariales_2026.txt", "title": "Bandas salariales 2026", "visibility": "restricted", "groups": ["Recursos Humanos"]}
+  ]
+}

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -42,6 +43,11 @@ class MessageRead(BaseModel):
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     latency_ms: int | None = None
+    evaluation: dict | None = None
+    faithfulness_score: float | None = None
+    flagged: bool = False
+    feedback_rating: int | None = None
+    feedback_comment: str | None = None
     created_at: datetime
 
 
@@ -59,3 +65,8 @@ class ChatTurn(BaseModel):
     conversation_id: int
     user_message: MessageRead
     assistant_message: MessageRead
+
+
+class FeedbackCreate(BaseModel):
+    rating: Literal[1, -1]
+    comment: str | None = Field(default=None, max_length=2000)

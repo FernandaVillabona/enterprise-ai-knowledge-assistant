@@ -1,0 +1,17 @@
+Normativa de seguridad de la información
+Nimbus Tech S.L. (empresa ficticia) · Uso interno: equipo de IT
+
+1. Certificación
+
+Nimbus Tech está certificada en ISO-27001 desde 2024. La auditoría de renovación se realiza cada año en octubre.
+
+2. Contraseñas y acceso
+
+Las contraseñas deben tener al menos 14 caracteres. El doble factor de autenticación (MFA) es obligatorio en todas las aplicaciones corporativas. No se fuerza el cambio periódico de contraseña salvo sospecha de compromiso.
+3. Incidentes
+
+Cualquier incidente de seguridad (pérdida de un portátil, correo sospechoso, acceso no autorizado) debe notificarse al equipo de seguridad en un plazo máximo de 1 hora a través del canal #seguridad-incidentes.
+
+4. Copias de seguridad
+
+Se realizan copias diarias cifradas de los sistemas críticos, con una retención de 35 días. Las restauraciones se prueban cada trimestre.
