@@ -6,8 +6,9 @@
   max-width: 760px;
 }
 
+// Respuesta en revisión: el borde completo toma el color de aviso (el badge «En revisión» lo explica)
 .msg--flagged {
-  border-left: 3px solid var(--warn);
+  border-color: var(--warn);
 }
 
 .msg__text {
