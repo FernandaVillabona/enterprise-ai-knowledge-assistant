@@ -1,4 +1,8 @@
-"""Dependencias reutilizables: obtener el usuario autenticado y exigir roles."""
+"""Dependencias reutilizables: usuario autenticado, roles y servicios de IA.
+
+Los servicios de IA (embeddings, LLM, recuperador) se inyectan como dependencias
+para que los tests puedan sustituirlos con `app.dependency_overrides`.
+"""
 from typing import Annotated
 
 import jwt
@@ -6,9 +10,14 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.security import decode_access_token
 from app.db.session import get_db
 from app.models.user import User, UserRole
+from app.services import search as search_service
+from app.services.embeddings import Embedder, get_embedder
+from app.services.llm import ChatLLM, get_llm
+from app.services.rag import Retriever
 
 # tokenUrl le dice a Swagger (/docs) dónde hacer login con el botón "Authorize"
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -44,3 +53,39 @@ def require_admin(user: CurrentUser) -> User:
 
 
 AdminUser = Annotated[User, Depends(require_admin)]
+
+
+def embedder_dependency() -> Embedder:
+    try:
+        return get_embedder()
+    except RuntimeError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc))
+
+
+EmbedderDep = Annotated[Embedder, Depends(embedder_dependency)]
+
+
+def llm_dependency() -> ChatLLM:
+    try:
+        return get_llm()
+    except RuntimeError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc))
+
+
+LLMDep = Annotated[ChatLLM, Depends(llm_dependency)]
+
+
+def retriever_dependency(db: DbSession, embedder: EmbedderDep) -> Retriever:
+    """Búsqueda híbrida que usa el chat. En la fase 5 añadirá el filtro de permisos."""
+    min_similarity = get_settings().rag_min_similarity
+
+    def retrieve(query: str, top_k: int) -> list[search_service.SearchHit]:
+        return search_service.search(
+            db, embedder, query, top_k=top_k, mode=search_service.SearchMode.HYBRID,
+            min_similarity=min_similarity,
+        )
+
+    return retrieve
+
+
+RetrieverDep = Annotated[Retriever, Depends(retriever_dependency)]

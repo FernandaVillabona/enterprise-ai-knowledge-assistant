@@ -46,7 +46,7 @@ flowchart LR
 - [x] **Fase 1 – Autenticación**: modelo de usuario, Alembic, registro/login con JWT, hash bcrypt, rol admin/user, tests.
 - [x] **Fase 2 – Ingesta de documentos**: subida (admin), extracción PDF/DOCX/TXT por página, chunking por tokens con solapamiento, embeddings en lote, procesamiento en segundo plano.
 - [x] **Fase 3 – Búsqueda semántica**: índice HNSW (coseno), full-text en español (GIN), búsqueda híbrida con RRF, tests contra PostgreSQL real en CI.
-- [ ] **Fase 4 – Chat RAG**: conversaciones con historial, prompt con contexto, respuestas con citas.
+- [x] **Fase 4 – Chat RAG**: conversaciones con historial, reescritura de preguntas de seguimiento, prompt con fuentes delimitadas, citas validadas.
 - [ ] **Fase 5 – Roles y permisos**: roles/departamentos, filtrado de documentos por permiso en la recuperación.
 - [ ] **Fase 6 – Evaluación**: verificación de fidelidad (LLM-as-judge), dataset de evaluación, métricas.
 - [ ] **Fase 7 – Frontend Angular**: login, chat, panel de administración.
@@ -117,6 +117,11 @@ pytest -q
 | POST | `/api/documents/{id}/reprocess` | Admin | Volver a procesar |
 | DELETE | `/api/documents/{id}` | Admin | Borrar documento, chunks y archivo |
 | POST | `/api/search` | Bearer | Búsqueda `{query, top_k, mode: semantic\|keyword\|hybrid, min_similarity}` |
+| POST | `/api/conversations` | Bearer | Crear conversación |
+| GET | `/api/conversations` | Bearer | Mis conversaciones (más recientes primero) |
+| GET | `/api/conversations/{id}` | Bearer | Conversación con mensajes y fuentes |
+| DELETE | `/api/conversations/{id}` | Bearer | Borrar conversación |
+| POST | `/api/conversations/{id}/messages` | Bearer | Preguntar → respuesta con citas y fuentes |
 
 ## Cómo funciona la ingesta
 
@@ -150,6 +155,36 @@ Decisiones de diseño:
 - **Escaneo iterativo** (`hnsw.iterative_scan`, pgvector ≥ 0.8): con filtros (`WHERE`), HNSW podría devolver menos de `top_k` filas porque filtra después de elegir candidatos. Será clave al filtrar por permisos en la fase 5.
 - **RRF** fusiona por *posición*, así no hay que normalizar puntuaciones de escalas distintas (coseno 0..1 vs `ts_rank`).
 
+## Cómo funciona el chat RAG
+
+```mermaid
+sequenceDiagram
+    participant U as Usuario
+    participant API as FastAPI
+    participant LLM as OpenAI
+    participant DB as pgvector
+    U->>API: «¿Y los becarios?»
+    API->>LLM: Reescribe con el historial
+    LLM-->>API: «días de vacaciones de los becarios»
+    API->>DB: Búsqueda híbrida (top 6)
+    DB-->>API: Fragmentos + documento + página
+    alt sin resultados relevantes
+        API-->>U: «No he encontrado información…» (sin llamar al LLM)
+    else
+        API->>LLM: Reglas + fuentes numeradas + historial + pregunta
+        LLM-->>API: Respuesta con [1][2]
+        API->>API: Valida citas (elimina las que no existen)
+        API-->>U: Respuesta + fuentes (cited=true/false)
+    end
+```
+
+- **Grounding**: el *system prompt* obliga a responder solo con las fuentes y a usar una frase fija cuando no está la respuesta.
+- **Fuentes delimitadas** con `<fuente id="n" documento="…" pagina="…">`, y la instrucción de tratarlas como datos: mitiga la *prompt injection* desde documentos.
+- **Reescritura de la pregunta**: las preguntas de seguimiento («¿y eso?») se convierten en consultas autónomas antes de buscar.
+- **Sin contexto, sin LLM**: si la recuperación no encuentra nada relevante se responde directamente; más barato y sin riesgo de inventar.
+- **Validación de citas**: una cita a una fuente que no se envió es una alucinación; se elimina de la respuesta y se registra.
+- **Trazabilidad**: cada respuesta guarda la consulta usada, las fuentes (citadas o no), el modelo, los tokens y la latencia; es la base de la evaluación de la fase 6.
+
 ### Tests contra PostgreSQL
 
 Los tests marcados `@pytest.mark.postgres` se omiten con SQLite. Para ejecutarlos:
@@ -177,7 +212,7 @@ En Swagger (`/docs`) usa el botón **Authorize** para hacer login y probar las r
 │   │   ├── models/       # Modelos ORM (SQLAlchemy)
 │   │   ├── schemas/      # Esquemas Pydantic (entrada/salida de la API)
 │   │   ├── scripts/      # Utilidades de consola (create_admin)
-│   │   ├── services/     # Lógica: extracción, chunking, embeddings, ingesta
+│   │   ├── services/     # Lógica: extracción, chunking, embeddings, ingesta, búsqueda, LLM, RAG
 │   │   └── main.py
 │   ├── migrations/       # Migraciones Alembic
 │   ├── tests/

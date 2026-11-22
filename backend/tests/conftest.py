@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401
-from app.api.documents import embedder_dependency
+from app.api.deps import embedder_dependency
 from app.core.config import get_settings
 from app.core.security import create_access_token, hash_password
 from app.db.session import Base, get_db, get_session_factory
