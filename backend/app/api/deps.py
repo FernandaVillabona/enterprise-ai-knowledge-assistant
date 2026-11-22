@@ -17,6 +17,7 @@ from app.models.user import User, UserRole
 from app.services import search as search_service
 from app.services.embeddings import Embedder, get_embedder
 from app.services.llm import ChatLLM, get_llm
+from app.services.permissions import document_access_condition
 from app.services.rag import Retriever
 
 # tokenUrl le dice a Swagger (/docs) dónde hacer login con el botón "Authorize"
@@ -75,14 +76,15 @@ def llm_dependency() -> ChatLLM:
 LLMDep = Annotated[ChatLLM, Depends(llm_dependency)]
 
 
-def retriever_dependency(db: DbSession, embedder: EmbedderDep) -> Retriever:
-    """Búsqueda híbrida que usa el chat. En la fase 5 añadirá el filtro de permisos."""
+def retriever_dependency(db: DbSession, embedder: EmbedderDep, user: CurrentUser) -> Retriever:
+    """Búsqueda híbrida que usa el chat, limitada a los documentos que `user` puede ver."""
     min_similarity = get_settings().rag_min_similarity
+    access = document_access_condition(user)
 
     def retrieve(query: str, top_k: int) -> list[search_service.SearchHit]:
         return search_service.search(
-            db, embedder, query, top_k=top_k, mode=search_service.SearchMode.HYBRID,
-            min_similarity=min_similarity,
+            db, embedder, query, access=access, top_k=top_k,
+            mode=search_service.SearchMode.HYBRID, min_similarity=min_similarity,
         )
 
     return retrieve

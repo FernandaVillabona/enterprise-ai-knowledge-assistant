@@ -1,6 +1,7 @@
-"""Gestión de documentos (solo administradores en esta fase).
+"""Gestión de documentos.
 
-En la fase 5 los usuarios normales podrán listar los documentos que tengan autorizados.
+- Administradores: subir, listar todo, cambiar el acceso, reprocesar y borrar.
+- Usuarios: listar los documentos que pueden consultar (`/documents/accessible`).
 """
 import uuid
 from pathlib import Path
@@ -20,12 +21,15 @@ from fastapi import (
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from app.api.deps import AdminUser, DbSession, EmbedderDep
+from app.api.deps import AdminUser, CurrentUser, DbSession, EmbedderDep
+from app.api.groups import resolve_groups
 from app.core.config import get_settings
 from app.db.session import get_session_factory
-from app.models.document import Chunk, Document, DocumentStatus, FileType
-from app.schemas.documents import ChunkRead, DocumentRead
+from app.models.document import Chunk, Document, DocumentStatus, FileType, Visibility
+from app.schemas.documents import ChunkRead, DocumentRead, DocumentSummary
+from app.schemas.groups import DocumentAccessUpdate
 from app.services.ingestion import run_ingestion_job
+from app.services.permissions import document_access_condition
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -76,13 +80,19 @@ async def upload_document(
     session_factory: SessionFactory,
     file: Annotated[UploadFile, File(description="PDF, DOCX o TXT")],
     title: Annotated[str | None, Form(max_length=255)] = None,
+    visibility: Annotated[Visibility, Form()] = Visibility.RESTRICTED,
+    group_ids: Annotated[list[int] | None, Form()] = None,
 ) -> Document:
     """Sube un documento y lanza su procesamiento en segundo plano.
 
     Devuelve 202 Accepted: el documento queda en `pending`; consulta
     `GET /documents/{id}` hasta que esté `ready` (o `failed`).
+
+    Acceso: por defecto `restricted` y sin grupos (solo admins). Indica `group_ids`
+    (repetible en el formulario) o `visibility=public`.
     """
     settings = get_settings()
+    groups = resolve_groups(db, group_ids or [])  # validamos antes de guardar nada en disco
     original_name = Path(file.filename or "documento").name  # evita rutas tipo ../../
     file_type = EXTENSIONS.get(Path(original_name).suffix.lower())
     if file_type is None:
@@ -113,6 +123,8 @@ async def upload_document(
         size_bytes=size,
         status=DocumentStatus.PENDING,
         uploaded_by_id=admin.id,
+        visibility=visibility,
+        groups=groups,
     )
     db.add(document)
     db.commit()
@@ -127,9 +139,35 @@ def list_documents(_: AdminUser, db: DbSession) -> list[Document]:
     return list(db.scalars(select(Document).order_by(Document.created_at.desc(), Document.id.desc())))
 
 
+# Debe declararse ANTES de "/{document_id}": FastAPI prueba las rutas en orden
+@router.get("/accessible", response_model=list[DocumentSummary])
+def list_accessible_documents(user: CurrentUser, db: DbSession) -> list[Document]:
+    """Documentos que el usuario puede consultar en el chat (solo los ya procesados)."""
+    return list(
+        db.scalars(
+            select(Document)
+            .where(Document.status == DocumentStatus.READY, document_access_condition(user))
+            .order_by(Document.title)
+        )
+    )
+
+
 @router.get("/{document_id}", response_model=DocumentRead)
 def get_document(document_id: int, _: AdminUser, db: DbSession) -> Document:
     return _get_document(db, document_id)
+
+
+@router.put("/{document_id}/access", response_model=DocumentRead)
+def update_document_access(
+    document_id: int, data: DocumentAccessUpdate, _: AdminUser, db: DbSession
+) -> Document:
+    """Cambia quién puede consultar el documento. Efecto inmediato en búsqueda y chat."""
+    document = _get_document(db, document_id)
+    document.visibility = data.visibility
+    document.groups = resolve_groups(db, data.group_ids)
+    db.commit()
+    db.refresh(document)
+    return document
 
 
 @router.get("/{document_id}/chunks", response_model=list[ChunkRead])

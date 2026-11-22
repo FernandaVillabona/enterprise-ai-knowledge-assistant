@@ -124,7 +124,7 @@ def test_end_to_end_upload_then_chat(client, admin_headers, user_headers):
     }.items():
         client.post(
             "/api/documents", headers=admin_headers,
-            files={"file": ("d.txt", content.encode())}, data={"title": title},
+            files={"file": ("d.txt", content.encode())}, data={"title": title, "visibility": "public"},
         )
 
     conv_id = new_conversation(client, user_headers)

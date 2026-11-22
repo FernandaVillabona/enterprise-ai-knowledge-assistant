@@ -10,7 +10,7 @@ Así «días libres» y «descanso» caen en el mismo sitio, como haría un embe
 import math
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import text, true
 
 from app.api.deps import embedder_dependency
 from app.main import app
@@ -44,6 +44,11 @@ DOCS = {
     "Seguridad informática": "Las contraseñas deben cambiarse cada 90 días según la norma ISO-27001.",
     "Gastos de viaje": "Las dietas de viaje se reembolsan presentando la factura original.",
 }
+
+
+def search_all(db, query, **kwargs):
+    """Búsqueda sin restricción de permisos (como un admin). Los permisos se prueban en test_permissions.py."""
+    return search(db, TopicEmbedder(), query, access=true(), **kwargs)
 
 
 # ---------- RRF (sin BD) ----------
@@ -80,7 +85,7 @@ def indexed_docs(client, admin_headers):
             "/api/documents",
             headers=admin_headers,
             files={"file": ("doc.txt", content.encode())},
-            data={"title": title},
+            data={"title": title, "visibility": "public"},
         )
         assert r.status_code == 202
         ids[title] = r.json()["id"]
@@ -96,7 +101,7 @@ def test_indexes_exist(db):
 @pytest.mark.postgres
 def test_semantic_search_finds_synonyms(db, indexed_docs):
     # Ni «días libres» ni «tengo» aparecen literalmente en el documento de vacaciones
-    hits = search(db, TopicEmbedder(), "¿Cuántos días libres tengo?", mode=SearchMode.SEMANTIC)
+    hits = search_all(db, "¿Cuántos días libres tengo?", mode=SearchMode.SEMANTIC)
     assert hits[0].document_title == "Política de vacaciones"
     assert hits[0].page_number == 1
     assert hits[0].similarity > hits[-1].similarity
@@ -104,17 +109,17 @@ def test_semantic_search_finds_synonyms(db, indexed_docs):
 
 @pytest.mark.postgres
 def test_keyword_search_finds_exact_terms_with_spanish_stemming(db, indexed_docs):
-    hits = search(db, TopicEmbedder(), "ISO-27001", mode=SearchMode.KEYWORD)
+    hits = search_all(db, "ISO-27001", mode=SearchMode.KEYWORD)
     assert [h.document_title for h in hits] == ["Seguridad informática"]
 
     # Stemming: «reembolso» encuentra «reembolsan»
-    hits = search(db, TopicEmbedder(), "reembolso", mode=SearchMode.KEYWORD)
+    hits = search_all(db, "reembolso", mode=SearchMode.KEYWORD)
     assert hits and hits[0].document_title == "Gastos de viaje"
 
 
 @pytest.mark.postgres
 def test_hybrid_combines_both_signals(db, indexed_docs):
-    hits = search(db, TopicEmbedder(), "norma ISO-27001 de contraseñas", mode=SearchMode.HYBRID, top_k=3)
+    hits = search_all(db, "norma ISO-27001 de contraseñas", mode=SearchMode.HYBRID, top_k=3)
     top = hits[0]
     assert top.document_title == "Seguridad informática"
     assert top.similarity is not None and top.keyword_rank is not None
@@ -123,10 +128,10 @@ def test_hybrid_combines_both_signals(db, indexed_docs):
 @pytest.mark.postgres
 def test_filters_by_document_ids_and_min_similarity(db, indexed_docs):
     only_travel = [indexed_docs["Gastos de viaje"]]
-    hits = search(db, TopicEmbedder(), "vacaciones", mode=SearchMode.SEMANTIC, document_ids=only_travel)
+    hits = search_all(db, "vacaciones", mode=SearchMode.SEMANTIC, document_ids=only_travel)
     assert {h.document_title for h in hits} == {"Gastos de viaje"}
 
-    hits = search(db, TopicEmbedder(), "vacaciones", mode=SearchMode.SEMANTIC, min_similarity=0.9)
+    hits = search_all(db, "vacaciones", mode=SearchMode.SEMANTIC, min_similarity=0.9)
     assert [h.document_title for h in hits] == ["Política de vacaciones"]
 
 
@@ -135,7 +140,7 @@ def test_documents_not_ready_are_excluded(db, client, admin_headers, indexed_doc
     doc_id = indexed_docs["Política de vacaciones"]
     db.execute(text("UPDATE documents SET status = 'processing' WHERE id = :id"), {"id": doc_id})
     db.commit()
-    hits = search(db, TopicEmbedder(), "vacaciones descanso", mode=SearchMode.HYBRID)
+    hits = search_all(db, "vacaciones descanso", mode=SearchMode.HYBRID)
     assert "Política de vacaciones" not in {h.document_title for h in hits}
 
 
