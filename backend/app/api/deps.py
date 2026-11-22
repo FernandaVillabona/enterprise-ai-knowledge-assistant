@@ -16,7 +16,7 @@ from app.db.session import get_db
 from app.models.user import User, UserRole
 from app.services import search as search_service
 from app.services.embeddings import Embedder, get_embedder
-from app.services.llm import ChatLLM, get_llm
+from app.services.llm import ChatLLM, get_judge_llm, get_llm
 from app.services.permissions import document_access_condition
 from app.services.rag import Retriever
 
@@ -74,6 +74,16 @@ def llm_dependency() -> ChatLLM:
 
 
 LLMDep = Annotated[ChatLLM, Depends(llm_dependency)]
+
+
+def judge_llm_dependency() -> ChatLLM:
+    try:
+        return get_judge_llm()
+    except RuntimeError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc))
+
+
+JudgeLLMDep = Annotated[ChatLLM, Depends(judge_llm_dependency)]
 
 
 def retriever_dependency(db: DbSession, embedder: EmbedderDep, user: CurrentUser) -> Retriever:

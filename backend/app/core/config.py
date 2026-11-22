@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     rag_history_messages: int = 6  # mensajes previos que se incluyen para dar contexto
     rag_max_answer_tokens: int = 800
 
+    # --- Evaluación (fase 6) ---
+    eval_auto_enabled: bool = True  # evaluar cada respuesta del chat en segundo plano
+    eval_judge_model: str | None = None  # vacío = el mismo modelo que el chat
+    eval_flag_threshold: float = 1.0  # fidelidad < umbral → respuesta marcada para revisión
+
     @property
     def database_url(self) -> str:
         return (

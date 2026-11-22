@@ -26,10 +26,15 @@ services:
     environment:
       # Dentro de la red de Docker el host de la BD es el nombre del servicio
       POSTGRES_HOST: db
+      # Dentro del contenedor el código está en /app: guardamos los archivos subidos en
+      # /app/storage, que es ./backend/storage en tu equipo (persiste y está en .gitignore)
+      STORAGE_DIR: /app/storage/documents
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - ./samples:/samples:ro  # corpus demo (app.scripts.seed_demo)
+      - ./eval:/eval  # dataset y reportes de evaluación (app.scripts.run_eval)
     depends_on:
       db:
         condition: service_healthy

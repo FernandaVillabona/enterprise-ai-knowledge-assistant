@@ -48,7 +48,7 @@ flowchart LR
 - [x] **Fase 3 – Búsqueda semántica**: índice HNSW (coseno), full-text en español (GIN), búsqueda híbrida con RRF, tests contra PostgreSQL real en CI.
 - [x] **Fase 4 – Chat RAG**: conversaciones con historial, reescritura de preguntas de seguimiento, prompt con fuentes delimitadas, citas validadas.
 - [x] **Fase 5 – Roles y permisos**: grupos, documentos públicos/restringidos (denegar por defecto), filtro de permisos dentro de la consulta de recuperación, historial que respeta accesos revocados.
-- [ ] **Fase 6 – Evaluación**: verificación de fidelidad (LLM-as-judge), dataset de evaluación, métricas.
+- [x] **Fase 6 – Evaluación**: juez de fidelidad (LLM-as-judge) en segundo plano, checks deterministas, feedback 👍/👎, métricas y cola de revisión, corpus demo y evaluación offline con golden dataset.
 - [ ] **Fase 7 – Frontend Angular**: login, chat, panel de administración.
 - [ ] **Fase 8 – Calidad**: tests, CI con GitHub Actions, despliegue.
 
@@ -129,6 +129,10 @@ pytest -q
 | PUT | `/api/groups/{id}/members` | Admin | Reemplazar miembros `{user_ids}` |
 | GET | `/api/users` | Admin | Usuarios con sus grupos |
 | PATCH | `/api/users/{id}` | Admin | Cambiar `role`, `is_active`, `group_ids` |
+| POST | `/api/conversations/{id}/messages/{mid}/feedback` | Bearer | Valorar una respuesta `{rating: 1\|-1, comment}` |
+| GET | `/api/admin/metrics?days=30` | Admin | Métricas de calidad (fidelidad, alucinaciones, feedback, tokens…) |
+| GET | `/api/admin/flagged` | Admin | Cola de respuestas marcadas para revisión |
+| POST | `/api/admin/flagged/{mid}/resolve` | Admin | Marcar como revisada |
 
 ## Control de acceso
 
@@ -206,6 +210,39 @@ sequenceDiagram
 - **Validación de citas**: una cita a una fuente que no se envió es una alucinación; se elimina de la respuesta y se registra.
 - **Trazabilidad**: cada respuesta guarda la consulta usada, las fuentes (citadas o no), el modelo, los tokens y la latencia; es la base de la evaluación de la fase 6.
 
+## Evaluación y detección de alucinaciones
+
+### En cada respuesta del chat (online)
+
+| Check | Cómo | Coste |
+|---|---|---|
+| Citas inválidas | La respuesta cita `[n]` de una fuente que no se envió | Gratis, instantáneo |
+| Respuesta sin citas | Hay fuentes pero no cita ninguna: ¿de dónde sale? | Gratis, instantáneo |
+| **Fidelidad** (*faithfulness*) | Un LLM juez divide la respuesta en afirmaciones y comprueba cada una contra las fuentes: `respaldadas / totales` | 1 llamada extra, **en segundo plano** |
+| Feedback 👎 | El usuario la valora como no útil | — |
+
+Cualquiera de ellos marca la respuesta (`flagged`) y la envía a la cola de revisión (`/api/admin/flagged`). El usuario recibe la respuesta al instante con `verdict: "pending"`; el veredicto aparece al releer la conversación. Se desactiva con `EVAL_AUTO_ENABLED=false`, y el modelo juez es configurable (`EVAL_JUDGE_MODEL`): un juez distinto del modelo evaluado detecta más fallos.
+
+> Una afirmación «no respaldada» es una alucinación *respecto a las fuentes* aunque sea verdad en el mundo real: el asistente solo debe decir lo que dicen los documentos.
+
+### Contra un dataset de referencia (offline)
+
+Para cambiar el prompt, el chunking o el modelo y **medir** si mejora. Usa un corpus de una empresa ficticia ([samples/](samples/)) y [15 preguntas de referencia](eval/golden_dataset.jsonl), incluidas preguntas sin respuesta, de permisos (un usuario sin acceso debe recibir «no hay información») y una trampa (la cifra no está en los documentos).
+
+```bash
+docker compose exec backend python -m app.scripts.seed_demo   # grupos, usuarios y documentos demo
+docker compose exec backend python -m app.scripts.run_eval     # → eval/reports/eval-<fecha>.md
+```
+
+| Métrica | Qué mide |
+|---|---|
+| Hit rate · MRR · página correcta | ¿La recuperación trae el documento (y la página) correctos, y en qué posición? |
+| Fidelidad · tasa de alucinación | ¿La respuesta se ciñe a las fuentes? |
+| Corrección | ¿Coincide con la respuesta de referencia escrita por una persona? (juez, 0 / 0,5 / 1) |
+| Acierto responder / rechazar | ¿Responde cuando debe y dice «no hay información» cuando debe? |
+
+Con `--min-faithfulness 0.9` el script devuelve código de error si la calidad baja del umbral, de modo que puede usarse como *quality gate* en CI.
+
 ### Tests contra PostgreSQL
 
 Los tests marcados `@pytest.mark.postgres` se omiten con SQLite. Para ejecutarlos:
@@ -232,14 +269,16 @@ En Swagger (`/docs`) usa el botón **Authorize** para hacer login y probar las r
 │   │   ├── db/           # Conexión a la BD
 │   │   ├── models/       # Modelos ORM (SQLAlchemy)
 │   │   ├── schemas/      # Esquemas Pydantic (entrada/salida de la API)
-│   │   ├── scripts/      # Utilidades de consola (create_admin)
-│   │   ├── services/     # Lógica: extracción, chunking, embeddings, ingesta, búsqueda, LLM, RAG
+│   │   ├── scripts/      # Consola: create_admin, seed_demo, run_eval
+│   │   ├── services/     # Lógica: ingesta, búsqueda, RAG, permisos, evaluación
 │   │   └── main.py
 │   ├── migrations/       # Migraciones Alembic
 │   ├── tests/
 │   ├── Dockerfile
 │   └── requirements.txt
 ├── db/init/              # SQL de inicialización (activa pgvector)
+├── eval/                 # Golden dataset y reportes de evaluación
+├── samples/              # Corpus demo (empresa ficticia) + manifest
 ├── docker-compose.yml
 └── .env.example
 ```

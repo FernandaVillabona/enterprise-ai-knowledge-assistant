@@ -2,10 +2,15 @@
 import logging
 from dataclasses import asdict
 
-from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import func, select
+from typing import Annotated
 
-from app.api.deps import CurrentUser, DbSession, LLMDep, RetrieverDep
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from sqlalchemy import func, select
+from sqlalchemy.orm import sessionmaker
+
+from app.api.deps import CurrentUser, DbSession, JudgeLLMDep, LLMDep, RetrieverDep
+from app.core.config import get_settings
+from app.db.session import get_session_factory
 from app.models.chat import Conversation, Message, MessageRole
 from app.models.user import User
 from app.schemas.chat import (
@@ -13,8 +18,11 @@ from app.schemas.chat import (
     ConversationCreate,
     ConversationDetail,
     ConversationRead,
+    FeedbackCreate,
     MessageCreate,
+    MessageRead,
 )
+from app.services.evaluation import initial_evaluation, run_evaluation_job
 from app.services.llm import ChatMessage
 from app.services.permissions import accessible_document_ids
 from app.services.rag import answer_question
@@ -103,11 +111,16 @@ def send_message(
     user: CurrentUser,
     db: DbSession,
     llm: LLMDep,
+    judge: JudgeLLMDep,
     retrieve: RetrieverDep,
+    background: BackgroundTasks,
+    session_factory: Annotated[sessionmaker, Depends(get_session_factory)],
 ) -> ChatTurn:
     """Envía una pregunta y devuelve la respuesta del asistente con sus fuentes.
 
     En `sources`, `cited=true` marca las fuentes que el modelo citó realmente.
+    `evaluation.verdict` llega como `pending`: el juez de fidelidad se ejecuta en
+    segundo plano y su veredicto aparece al volver a leer la conversación.
     """
     conversation = _get_own_conversation(db, user, conversation_id)
     history = _history_for_llm(db, user, conversation.messages)
@@ -126,17 +139,25 @@ def send_message(
             conversation_id,
         )
 
+    settings = get_settings()
+    sources = [asdict(s) for s in result.sources]
+    evaluation = initial_evaluation(
+        result.answer, sources, result.invalid_citations, judged=settings.eval_auto_enabled
+    )
+
     user_message = Message(conversation_id=conversation.id, role=MessageRole.USER, content=data.content)
     assistant_message = Message(
         conversation_id=conversation.id,
         role=MessageRole.ASSISTANT,
         content=result.answer,
         search_query=result.search_query,
-        sources=[asdict(s) for s in result.sources],
+        sources=sources,
         model=result.model,
         prompt_tokens=result.prompt_tokens,
         completion_tokens=result.completion_tokens,
         latency_ms=result.latency_ms,
+        evaluation=evaluation.to_dict(),
+        flagged=evaluation.is_flagged(settings.eval_flag_threshold),
     )
     # La primera pregunta da título a la conversación
     if conversation.title == DEFAULT_TITLE and not conversation.messages:
@@ -147,8 +168,30 @@ def send_message(
     db.refresh(user_message)
     db.refresh(assistant_message)
 
+    if evaluation.verdict == "pending":
+        background.add_task(run_evaluation_job, assistant_message.id, session_factory, judge)
+
     return ChatTurn(
         conversation_id=conversation.id,
         user_message=user_message,
         assistant_message=assistant_message,
     )
+
+
+@router.post("/{conversation_id}/messages/{message_id}/feedback", response_model=MessageRead)
+def give_feedback(
+    conversation_id: int, message_id: int, data: FeedbackCreate, user: CurrentUser, db: DbSession
+) -> Message:
+    """Valoración del usuario (👍 = 1, 👎 = -1). Una valoración negativa marca la
+    respuesta para revisión aunque el juez la diera por buena."""
+    conversation = _get_own_conversation(db, user, conversation_id)
+    message = db.get(Message, message_id)
+    if message is None or message.conversation_id != conversation.id or message.role != MessageRole.ASSISTANT:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Mensaje no encontrado")
+    message.feedback_rating = data.rating
+    message.feedback_comment = data.comment
+    if data.rating == -1:
+        message.flagged = True
+    db.commit()
+    db.refresh(message)
+    return message

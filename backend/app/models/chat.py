@@ -1,7 +1,23 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    SmallInteger,
+    String,
+    Text,
+    false,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -44,6 +60,10 @@ class Message(Base):
     """
 
     __tablename__ = "messages"
+    __table_args__ = (
+        CheckConstraint("feedback_rating IN (-1, 1)", name="ck_messages_feedback_rating"),
+        Index("ix_messages_flagged", "created_at", postgresql_where=text("flagged")),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     conversation_id: Mapped[int] = mapped_column(
@@ -60,6 +80,14 @@ class Message(Base):
     prompt_tokens: Mapped[int | None] = mapped_column(Integer)
     completion_tokens: Mapped[int | None] = mapped_column(Integer)
     latency_ms: Mapped[int | None] = mapped_column(Integer)
+    # Evaluación (fase 6). `evaluation` guarda el detalle (veredicto, afirmaciones…);
+    # `faithfulness_score` y `flagged` van en columnas propias para poder filtrar y agregar.
+    evaluation: Mapped[dict | None] = mapped_column(JsonType)
+    faithfulness_score: Mapped[float | None] = mapped_column(Float)
+    flagged: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # Feedback del usuario: 1 = útil, -1 = no útil
+    feedback_rating: Mapped[int | None] = mapped_column(SmallInteger)
+    feedback_comment: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")

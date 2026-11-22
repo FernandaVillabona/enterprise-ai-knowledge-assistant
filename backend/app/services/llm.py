@@ -28,7 +28,9 @@ class LLMResult:
 
 
 class ChatLLM(Protocol):
-    def complete(self, messages: list[ChatMessage], max_tokens: int = 800) -> LLMResult: ...
+    def complete(
+        self, messages: list[ChatMessage], max_tokens: int = 800, json_mode: bool = False
+    ) -> LLMResult: ...
 
 
 class OpenAIChatLLM:
@@ -39,11 +41,16 @@ class OpenAIChatLLM:
         self.model = model
         self.temperature = temperature
 
-    def complete(self, messages: list[ChatMessage], max_tokens: int = 800) -> LLMResult:
+    def complete(
+        self, messages: list[ChatMessage], max_tokens: int = 800, json_mode: bool = False
+    ) -> LLMResult:
         kwargs = {}
         # Algunos modelos (los de razonamiento) no aceptan temperature: es opcional
         if self.temperature is not None:
             kwargs["temperature"] = self.temperature
+        if json_mode:
+            # Garantiza que la salida sea JSON válido (el prompt debe mencionar "JSON")
+            kwargs["response_format"] = {"type": "json_object"}
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[{"role": m.role, "content": m.content} for m in messages],
@@ -67,7 +74,9 @@ class FakeLLM:
         self.responder = responder
         self.calls: list[list[ChatMessage]] = []
 
-    def complete(self, messages: list[ChatMessage], max_tokens: int = 800) -> LLMResult:
+    def complete(
+        self, messages: list[ChatMessage], max_tokens: int = 800, json_mode: bool = False
+    ) -> LLMResult:
         self.calls.append(messages)
         return LLMResult(self.responder(messages), "fake-llm", 100, 20)
 
@@ -76,3 +85,11 @@ class FakeLLM:
 def get_llm() -> ChatLLM:
     s = get_settings()
     return OpenAIChatLLM(s.openai_api_key, s.openai_chat_model, s.openai_temperature)
+
+
+@lru_cache
+def get_judge_llm() -> ChatLLM:
+    """LLM evaluador. Puede ser un modelo distinto (a menudo más potente) que el del chat:
+    un juez que comete los mismos errores que el evaluado detecta menos fallos."""
+    s = get_settings()
+    return OpenAIChatLLM(s.openai_api_key, s.eval_judge_model or s.openai_chat_model, 0.0)
