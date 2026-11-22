@@ -39,5 +39,14 @@ services:
       db:
         condition: service_healthy
 
+  frontend:
+    # Angular compilado y servido por nginx, que además redirige /api al backend
+    build: ./frontend
+    container_name: kb_frontend
+    ports:
+      - "4200:80"
+    depends_on:
+      - backend
+
 volumes:
   pgdata:

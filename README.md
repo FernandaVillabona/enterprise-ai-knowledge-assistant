@@ -8,7 +8,7 @@ Asistente empresarial con **RAG (Retrieval-Augmented Generation)**: una empresa 
 
 | Capa | Tecnología |
 |---|---|
-| Frontend | Angular |
+| Frontend | Angular 22 (standalone, signals, zoneless) · Vitest · nginx |
 | API | Python · FastAPI |
 | Base de datos | PostgreSQL 16 + **pgvector** |
 | IA | OpenAI API (chat + embeddings) |
@@ -49,7 +49,7 @@ flowchart LR
 - [x] **Fase 4 – Chat RAG**: conversaciones con historial, reescritura de preguntas de seguimiento, prompt con fuentes delimitadas, citas validadas.
 - [x] **Fase 5 – Roles y permisos**: grupos, documentos públicos/restringidos (denegar por defecto), filtro de permisos dentro de la consulta de recuperación, historial que respeta accesos revocados.
 - [x] **Fase 6 – Evaluación**: juez de fidelidad (LLM-as-judge) en segundo plano, checks deterministas, feedback 👍/👎, métricas y cola de revisión, corpus demo y evaluación offline con golden dataset.
-- [ ] **Fase 7 – Frontend Angular**: login, chat, panel de administración.
+- [x] **Fase 7 – Frontend Angular**: Angular 22 (standalone, signals, zoneless), login/registro, chat con citas clicables y panel de fuentes, veredicto y feedback, administración de documentos, grupos, usuarios y calidad; nginx en Docker y CI.
 - [ ] **Fase 8 – Calidad**: tests, CI con GitHub Actions, despliegue.
 
 ## Puesta en marcha
@@ -67,7 +67,8 @@ cp .env.example .env      # y rellena OPENAI_API_KEY
 docker compose up --build
 ```
 
-Abre http://localhost:8000/docs (Swagger) y prueba `GET /api/health`:
+- **App**: http://localhost:4200
+- **API (Swagger)**: http://localhost:8000/docs — prueba `GET /api/health`:
 
 ```json
 { "status": "ok", "database": "ok", "pgvector": "0.8.0" }
@@ -84,6 +85,18 @@ pip install -r requirements-dev.txt
 alembic upgrade head            # crea las tablas
 uvicorn app.main:app --reload
 ```
+
+### Frontend en local (con el backend en marcha)
+
+Requiere Node 20+.
+
+```bash
+cd frontend
+npm install
+npm start        # http://localhost:4200, redirige /api al backend en el puerto 8000
+```
+
+Más detalles en [frontend/README.md](frontend/README.md).
 
 ### Crear un administrador
 
@@ -276,6 +289,7 @@ En Swagger (`/docs`) usa el botón **Authorize** para hacer login y probar las r
 │   ├── tests/
 │   ├── Dockerfile
 │   └── requirements.txt
+├── frontend/             # Angular 22 (ver frontend/README.md)
 ├── db/init/              # SQL de inicialización (activa pgvector)
 ├── eval/                 # Golden dataset y reportes de evaluación
 ├── samples/              # Corpus demo (empresa ficticia) + manifest

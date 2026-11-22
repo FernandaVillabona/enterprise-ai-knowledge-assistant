@@ -1,0 +1,73 @@
+.msg {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.9rem 1.1rem;
+  max-width: 760px;
+}
+
+// Respuesta en revisión: el borde completo toma el color de aviso (el badge «En revisión» lo explica)
+.msg--flagged {
+  border-color: var(--warn);
+}
+
+.msg__text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.msg__sources {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.source-chip {
+  font: inherit;
+  font-size: 0.8rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.55rem 0.2rem 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--primary);
+  }
+}
+
+.msg__footer {
+  margin-top: 0.6rem;
+}
+
+.selected {
+  background: var(--primary-soft);
+}
+
+.msg__details {
+  margin: 0.6rem 0 0;
+  padding: 0.6rem 0.8rem;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+
+  dt {
+    font-weight: 600;
+    margin-top: 0.4rem;
+  }
+  dd {
+    margin: 0;
+    color: var(--text-muted);
+  }
+  ul {
+    margin: 0;
+    padding-left: 1.1rem;
+  }
+}

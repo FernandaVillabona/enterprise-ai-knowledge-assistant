@@ -28,3 +28,6 @@ Thumbs.db
 
 # Reportes generados por app.scripts.run_eval
 eval/reports/
+
+# Configuración local de herramientas de IA
+.claude/
