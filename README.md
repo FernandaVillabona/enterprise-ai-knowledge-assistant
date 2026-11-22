@@ -45,7 +45,7 @@ flowchart LR
 - [x] **Fase 0 – Fundamentos**: estructura del repo, Docker Compose, PostgreSQL + pgvector, FastAPI con `/api/health`.
 - [x] **Fase 1 – Autenticación**: modelo de usuario, Alembic, registro/login con JWT, hash bcrypt, rol admin/user, tests.
 - [x] **Fase 2 – Ingesta de documentos**: subida (admin), extracción PDF/DOCX/TXT por página, chunking por tokens con solapamiento, embeddings en lote, procesamiento en segundo plano.
-- [ ] **Fase 3 – Búsqueda semántica**: consulta vectorial con pgvector (índice HNSW), endpoint de búsqueda.
+- [x] **Fase 3 – Búsqueda semántica**: índice HNSW (coseno), full-text en español (GIN), búsqueda híbrida con RRF, tests contra PostgreSQL real en CI.
 - [ ] **Fase 4 – Chat RAG**: conversaciones con historial, prompt con contexto, respuestas con citas.
 - [ ] **Fase 5 – Roles y permisos**: roles/departamentos, filtrado de documentos por permiso en la recuperación.
 - [ ] **Fase 6 – Evaluación**: verificación de fidelidad (LLM-as-judge), dataset de evaluación, métricas.
@@ -116,6 +116,7 @@ pytest -q
 | GET | `/api/documents/{id}/chunks` | Admin | Ver cómo se ha troceado el documento |
 | POST | `/api/documents/{id}/reprocess` | Admin | Volver a procesar |
 | DELETE | `/api/documents/{id}` | Admin | Borrar documento, chunks y archivo |
+| POST | `/api/search` | Bearer | Búsqueda `{query, top_k, mode: semantic\|keyword\|hybrid, min_similarity}` |
 
 ## Cómo funciona la ingesta
 
@@ -136,6 +137,31 @@ Decisiones de diseño:
 - **Título en el embedding**: se embebe `título + chunk`, para que un fragmento que no menciona el tema (p. ej. «son 23 días hábiles») siga siendo recuperable.
 - **Seguridad en la subida**: se comprueba la firma del archivo (magic bytes), no solo la extensión; el nombre en disco es un UUID; hay límite de tamaño.
 - **Segundo plano**: la subida responde 202 al instante y el procesamiento corre en `BackgroundTasks`. En producción usaría una cola (Celery/RQ) con reintentos.
+
+## Cómo funciona la búsqueda
+
+| Modo | Cómo | Bueno para | Falla con |
+|---|---|---|---|
+| `semantic` | Distancia coseno entre embeddings (`<=>`, índice HNSW) | Sinónimos, paráfrasis («días libres» → vacaciones) | Códigos y términos exactos («ISO-27001») |
+| `keyword` | Full-text de PostgreSQL en español (`websearch_to_tsquery`, índice GIN) | Términos exactos, con stemming («reembolso» → «reembolsan») | Sinónimos |
+| `hybrid` *(por defecto)* | Ambas + **Reciprocal Rank Fusion**: `score = Σ 1/(60 + posición)` | Lo mejor de las dos | — |
+
+- **HNSW** es un índice de vecinos *aproximados*: navega un grafo en vez de comparar con todos los vectores. `hnsw.ef_search` regula el equilibrio velocidad/recall.
+- **Escaneo iterativo** (`hnsw.iterative_scan`, pgvector ≥ 0.8): con filtros (`WHERE`), HNSW podría devolver menos de `top_k` filas porque filtra después de elegir candidatos. Será clave al filtrar por permisos en la fase 5.
+- **RRF** fusiona por *posición*, así no hay que normalizar puntuaciones de escalas distintas (coseno 0..1 vs `ts_rank`).
+
+### Tests contra PostgreSQL
+
+Los tests marcados `@pytest.mark.postgres` se omiten con SQLite. Para ejecutarlos:
+
+```powershell
+docker compose up -d db
+docker compose exec db createdb -U kb_user kb_test
+$env:TEST_DATABASE_URL = "postgresql+psycopg://kb_user:kb_password@localhost:5432/kb_test"
+pytest -q
+```
+
+En GitHub Actions ([backend-tests.yml](.github/workflows/backend-tests.yml)) se ejecutan siempre, con un servicio `pgvector/pgvector:0.8.0-pg16`, y además se prueban las migraciones arriba y abajo.
 
 En Swagger (`/docs`) usa el botón **Authorize** para hacer login y probar las rutas protegidas.
 

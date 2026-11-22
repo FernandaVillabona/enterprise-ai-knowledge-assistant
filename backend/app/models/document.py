@@ -2,13 +2,18 @@ import enum
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text, func, literal_column
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.config import get_settings
 from app.db.session import Base
 
 EMBEDDING_DIM = get_settings().embedding_dimensions
+
+# Configuración de búsqueda de texto completo de PostgreSQL (stemming en español:
+# «vacaciones», «vacación» → misma raíz). El índice GIN depende de este valor exacto:
+# si lo cambias, crea una migración que regenere el índice.
+FTS_CONFIG = literal_column("'spanish'::regconfig")
 
 
 class DocumentStatus(str, enum.Enum):
@@ -72,6 +77,23 @@ class Chunk(Base):
     """
 
     __tablename__ = "chunks"
+    # Índices solo de PostgreSQL (.ddl_if): en los tests con SQLite se omiten.
+    # Se declaran aquí (y no sueltos) para que queden ligados a la tabla: un Index cuya
+    # única columna está dentro de una función no sabe a qué tabla pertenece.
+    __table_args__ = (
+        Index(
+            "ix_chunks_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 64},
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ).ddl_if(dialect="postgresql"),
+        Index(
+            "ix_chunks_content_fts",
+            func.to_tsvector(FTS_CONFIG, literal_column("content")),
+            postgresql_using="gin",
+        ).ddl_if(dialect="postgresql"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     document_id: Mapped[int] = mapped_column(
@@ -84,3 +106,9 @@ class Chunk(Base):
     embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM))
 
     document: Mapped[Document] = relationship(back_populates="chunks")
+
+
+def chunk_tsvector():
+    """Expresión tsvector del contenido. Debe ser IDÉNTICA a la del índice GIN para que
+    PostgreSQL lo use (ver migración 0003)."""
+    return func.to_tsvector(FTS_CONFIG, Chunk.content)
